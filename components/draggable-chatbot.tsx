@@ -59,16 +59,36 @@ export function DraggableChatbot() {
     const updatePosition = () => {
       if (!isOpen) {
         setPosition({
-          x: window.innerWidth - 80,
-          y: window.innerHeight - 80,
+          x: window.innerWidth - 96, // 64px button + 32px margin from right edge
+          y: window.innerHeight - 96, // 64px button + 32px margin from bottom edge
         })
+      } else {
+        const chatWidth = 384 // w-96 = 384px
+        const chatHeight = 600 // h-[600px]
+        const margin = 16
+
+        // Calculate optimal position for chat window
+        let newX = position.x
+        let newY = position.y
+
+        // If button is in bottom-right, position chat above and to the left
+        if (position.x > window.innerWidth - 200 && position.y > window.innerHeight - 200) {
+          newX = Math.max(margin, position.x - chatWidth + 64) // Align right edge with button
+          newY = Math.max(margin, position.y - chatHeight - 16) // Position above button with gap
+        }
+
+        // Ensure chat stays within screen bounds
+        newX = Math.max(margin, Math.min(newX, window.innerWidth - chatWidth - margin))
+        newY = Math.max(margin, Math.min(newY, window.innerHeight - chatHeight - margin))
+
+        setPosition({ x: newX, y: newY })
       }
     }
 
     updatePosition()
     window.addEventListener("resize", updatePosition)
     return () => window.removeEventListener("resize", updatePosition)
-  }, [isOpen])
+  }, [isOpen, position.x, position.y]) // Added position dependencies
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
@@ -129,19 +149,36 @@ export function DraggableChatbot() {
 
       const data = await response.json()
 
-      if (data.status === "success") {
-        setWebsiteContext(data)
+      if (data.title || data.metadata) {
+        // Transform the API response to match our expected format
+        const websiteData: WebsiteContext = {
+          url: websiteUrl.trim(),
+          status: "success",
+          metadata: {
+            title: data.title || data.metadata?.title || "Unknown Title",
+            description: data.description || data.metadata?.description || "",
+            domain: new URL(websiteUrl.trim()).hostname,
+          },
+          content: {
+            text_content: data.content || data.text_content || "",
+            headings: data.headings || [],
+          },
+          navigation: data.navigation || [],
+          scraped_at: Date.now(),
+        }
+
+        setWebsiteContext(websiteData)
         setShowUrlInput(false)
 
         const systemMessage: Message = {
           id: Date.now().toString(),
-          content: `✅ Successfully loaded website: ${data.metadata?.title || data.url}\n\nI can now answer questions about this website. What would you like to know?`,
+          content: `✅ Successfully loaded website: ${websiteData.metadata!.title}\n\nI can now answer questions about this website. What would you like to know?`,
           role: "assistant",
           timestamp: new Date(),
         }
         setMessages((prev) => [...prev, systemMessage])
       } else {
-        throw new Error(data.error || "Failed to scrape website")
+        throw new Error("Invalid response format from scraping API")
       }
     } catch (error) {
       console.error("Error scraping website:", error)
@@ -253,8 +290,8 @@ export function DraggableChatbot() {
       ref={chatbotRef}
       className="fixed z-50 w-96 h-[600px] cursor-move"
       style={{
-        left: `${Math.max(0, Math.min(position.x, window.innerWidth - 384))}px`,
-        top: `${Math.max(0, Math.min(position.y, window.innerHeight - 600))}px`,
+        left: `${position.x}px`, // Simplified positioning - useEffect handles bounds checking
+        top: `${position.y}px`,
       }}
     >
       <Card className="w-full h-full flex flex-col shadow-2xl border-2">
@@ -286,7 +323,7 @@ export function DraggableChatbot() {
             <div className="flex items-center gap-2">
               <IconWorld className="w-3 h-3 text-green-600" />
               <span className="font-medium text-green-700">Connected to:</span>
-              <span className="truncate">{websiteContext.metadata?.title || websiteContext.url}</span>
+              <span className="truncate">{websiteContext.metadata!.title || websiteContext.url}</span>
             </div>
           </div>
         )}
